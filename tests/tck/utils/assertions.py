@@ -85,8 +85,13 @@ def pathToString(pathToConvert):
     return strValue
 
 def dictToString(dictToConvert):
+    size = len(dictToConvert)
     strValue = '{'
-    strValue += ", ".join(map(lambda kv: kv[0] + ": " + toString(kv[1]), dictToConvert.iteritems()))
+    for idx, item in enumerate(dictToConvert.items()):
+        strValue += item[0] + ": "
+        strValue += toString(item[1])
+        if idx < size - 1:
+            strValue += ", "
     strValue += '}'
     return strValue
 
@@ -111,6 +116,8 @@ def toString(value):
         return listToString(value)
     elif isinstance(value, Path):
         return pathToString(value)
+    elif isinstance(value, dict):
+        return dictToString(value)
     elif value == None:
         return "null"
 
