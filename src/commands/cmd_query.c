@@ -92,6 +92,15 @@ void Graph_Query(void *args) {
 	AST *ast               = NULL;
 	bool cached            = false;
 	ExecutionPlan *plan    = NULL;
+
+	/* ========== redisgraphG ==========
+	 * TODO(tatiana)
+	 * Get logical plan and delay the decision for traversal order
+	 * 1. extract query graph
+	 * 2. extract expressions
+	 * 3.1. find common subexpressions
+	 * 3.2. extract filter info
+	 */
 	ExecutionCtx *exec_ctx = ExecutionCtx_FromQuery(command_ctx->query);
 
 	ast = exec_ctx->ast;

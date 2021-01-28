@@ -11,8 +11,12 @@ static void _ExecutionPlan_ProcessQueryGraph(ExecutionPlan *plan, QueryGraph *qg
 											 AST *ast) {
 	GraphContext *gc = QueryCtx_GetGraphCtx();
 
+  /* ========== redisgraphG ========== */
+  // TODO(tatiana): move to where stats are available for better cost estimation based on filter selectivity
 	// Build the full FilterTree for this AST so that we can order traversals properly.
 	FT_FilterNode *ft = AST_BuildFilterTree(ast);
+  // TODO(tatiana)
+
 	QueryGraph **connectedComponents = QueryGraph_ConnectedComponents(qg);
 	uint connectedComponentsCount = array_len(connectedComponents);
 	plan->connected_components = connectedComponents;
@@ -44,6 +48,15 @@ static void _ExecutionPlan_ProcessQueryGraph(ExecutionPlan *plan, QueryGraph *qg
 				root = NewAllNodeScanOp(plan, n->alias);
 			}
 		} else {
+      /* ========== redisgraphG ==========
+       * RedisGraph generates a chain of operators doing traversals with a leaf operator doing node scan. We use
+       * a single logical operator to replace all these operators and delay the traversal order decision util
+       * stats and data are accessible.
+       *
+       * Info and annotation for conversion to physical plan:
+       * 1.
+       * 2.
+       */
 			/* The component has edges, so we'll build a node scan and a chain of traversals. */
 			AlgebraicExpression **exps = AlgebraicExpression_FromQueryGraph(cc);
 			uint expCount = array_len(exps);

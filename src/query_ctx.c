@@ -52,6 +52,7 @@ void QueryCtx_SetGlobalExecutionCtx(CommandCtx *cmd_ctx) {
 	ctx->global_exec_ctx.bc = CommandCtx_GetBlockingClient(cmd_ctx);
 	ctx->global_exec_ctx.redis_ctx = CommandCtx_GetRedisCtx(cmd_ctx);
 	ctx->global_exec_ctx.command_name = CommandCtx_GetCommandName(cmd_ctx);
+  ctx->batch_size = cmd_ctx->batch_size;
 }
 
 void QueryCtx_SetAST(AST *ast) {
@@ -233,3 +234,7 @@ void QueryCtx_Free(void) {
 	pthread_setspecific(_tlsQueryCtxKey, NULL);
 }
 
+int64_t QueryCtx_GetBatchSize(void) {
+	QueryCtx *ctx = _QueryCtx_GetCtx();
+  return ctx->batch_size;
+}

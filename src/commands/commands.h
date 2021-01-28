@@ -14,6 +14,7 @@
 #include "cmd_slowlog.h"
 #include "cmd_dispatcher.h"
 #include "cmd_bulk_insert.h"
+#include "cmd_info.h"
 
 //------------------------------------------------------------------------------
 // Module Commands
@@ -28,6 +29,7 @@ typedef enum {
 	CMD_EXPLAIN        = 5,
 	CMD_PROFILE        = 6,
 	CMD_BULK_INSERT    = 7,
-	CMD_SLOWLOG        = 8
+	CMD_SLOWLOG        = 8,
+	CMD_INFO           = 9
 } GRAPH_Commands;
 

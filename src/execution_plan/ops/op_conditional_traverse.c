@@ -4,13 +4,16 @@
 * This file is available under the Redis Labs Source Available License Agreement
 */
 
+#include <stdio.h>
+
 #include "op_conditional_traverse.h"
 #include "RG.h"
 #include "shared/print_functions.h"
 #include "../../query_ctx.h"
 
 // default number of records to accumulate before traversing
-#define BATCH_SIZE 16
+#define BATCH_SIZE QueryCtx_GetBatchSize()
+// #define BATCH_SIZE 16
 
 /* Forward declarations. */
 static OpResult CondTraverseInit(OpBase *opBase);
@@ -119,6 +122,17 @@ static OpResult CondTraverseInit(OpBase *opBase) {
 	// use BATCH_SIZE as the value.
 	if(op->record_cap > BATCH_SIZE) op->record_cap = BATCH_SIZE;
 	op->records = rm_calloc(op->record_cap, sizeof(Record));
+
+  /* redisgraphG*/
+  if (op->stats_file == NULL) {
+    char file_name[40];
+    snprintf(file_name, 40, "/home/tati/cond_traverse_%d", op->destNodeIdx);
+    op->stats_file = fopen(file_name, "wb");
+    uint64_t size = 0; // write 0 to reset
+    fwrite(&size, sizeof(uint64_t), 1, op->stats_file);
+  }
+  /* redisgraphG*/
+
 	return OP_OK;
 }
 
@@ -164,10 +178,27 @@ static Record CondTraverseConsume(OpBase *opBase) {
 			// Store received record.
 			Record_PersistScalars(childRecord);
 			op->records[op->record_count] = childRecord;
+
 		}
 
 		// No data.
 		if(op->record_count == 0) return NULL;
+
+    /* redisgraphG
+     * verification experiments: count redundancy in source nodes
+     * output format: (in binary, uint64_t)
+     * <num_records><batch_i_record_1_source_id><batch_i_record_2_source_id>...
+     * <num_records><batch_i+1_record_1_source_id><batch_i+1_record_2_source_id>...
+     */
+    uint64_t size =op->record_count; // write 0 if reset, here is the number of records
+    fwrite(&size, sizeof(uint64_t), 1, op->stats_file);
+    for (uint i = 0; i < op->record_count; ++i) {
+      Record r = op->records[i];
+      Node *n = Record_GetNode(r, op->srcNodeIdx);
+      NodeID srcId = ENTITY_GET_ID(n);
+      fwrite(&srcId, sizeof(NodeID), 1, op->stats_file);
+    }
+    /* redisgraphG */
 
 		_traverse(op);
 	}
@@ -208,6 +239,13 @@ static OpResult CondTraverseReset(OpBase *ctx) {
 		op->iter = NULL;
 	}
 	if(op->F != GrB_NULL) GrB_Matrix_clear(op->F);
+
+  // reset stats collection
+  if (op->stats_file) {
+    uint64_t size = 0; // write 0 to reset
+    fwrite(&size, sizeof(uint64_t), 1, op->stats_file);
+  }
+
 	return OP_OK;
 }
 
@@ -250,5 +288,11 @@ static void CondTraverseFree(OpBase *ctx) {
 		rm_free(op->records);
 		op->records = NULL;
 	}
+
+  /* redisgraphG */
+  if (op->stats_file) {
+    fclose(op->stats_file);
+  }
+  /* redisgraphG */
 }
 

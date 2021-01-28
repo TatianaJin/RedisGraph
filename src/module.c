@@ -181,6 +181,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 		return REDISMODULE_ERR;
 	}
 
+	if(RedisModule_CreateCommand(ctx, "graph.INFO", CommandDispatch, "readonly deny-oom", 1, 1,
+								 1) == REDISMODULE_ERR) {
+		return REDISMODULE_ERR;
+	}
+
 	setupCrashHandlers(ctx);
 
 	return REDISMODULE_OK;

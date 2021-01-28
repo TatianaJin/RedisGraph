@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <stdio.h>
+
 #include "op.h"
 #include "shared/traverse_functions.h"
 #include "../execution_plan.h"
@@ -29,6 +31,7 @@ typedef struct {
 	uint record_cap;            // Max number of records to process.
 	Record *records;            // Array of records.
 	Record r;                   // Currently selected record.
+  FILE* stats_file;
 } OpCondTraverse;
 
 /* Creates a new Traverse operation */

@@ -425,6 +425,38 @@ static AlgebraicExpression *_AlgebraicExpression_FromPath
 // AlgebraicExpression construction.
 //------------------------------------------------------------------------------
 
+/* ========== redisgraphG ==========
+ * TODO(tatiana): Replace this function. Understand the definition of referenced entities and intermediate tuple layout, and rethink about the following.
+ * 1. convert qg (a connected component in the query graph) to a new QueryGraph (with modification on QGNode, i.e. QGNodeSplit) according to _should_divide_expression
+ *   a. a node with alias is not necessarily a referenced entity, right?
+ * 2. extract all connected components of the new QueryGraph, all of which should be already simple paths, and convert QGNodeSplit back to QGNode
+ * 3. construct expressions for each simple path
+ *   a. TODO(tatiana): where to handle transposition and label filter and whether to store additional info
+ *   b. cache the simple paths and try to mine commmon subpaths in a multi-query workload
+ *
+ * For later optimization phases, just note here
+ * For normal execution: ordering of exprs
+ * 1. cardinality estimation, e.g. based on filter, edge type, label, indices, degrees, runtime stats, etc.
+ * 2. reuse of intermediate result
+ * 3. possible pruning effect
+ *   a. favor high degree nodes
+ *   b. favor grouping expressions that cover cycles (if candidate pruning already examined the rule, it should be already reflected in cardinality estimation, and we may not need to consider it twice during normal execution)
+ *     (does the intermediate results include all ends of the expressions? what if an end is not needed for return?)
+ * For aggressive pruning
+ * 1. query vertex candidate pruning: find path filters for vertices to be included in intermediate and/or return tuples
+ *   benefits
+ *   a. cover low-cardinality query vertices (filtering on property, label, edge type)
+ *   b. cover cycles (how to know whether small cycles or larger cycles have more pruning power?)
+ *   costs: a time budget and a memory budget
+ *   a. consider I/O
+ *     i. consider reuse of loaded data
+ *   b. consider computation
+ *     i. consider reuse of intermediate result (e.g. mxm result of different adj matrices)
+ *   c. consider memory
+ * 2. partial embedding pruning
+ *   a. consider isomorphism restriction (e.g. no repeated vertices)
+ *   b. consider more general multi-vertex where predicates (e.g. a.age > b.age)
+ */
 // Construct algebraic expression form query graph.
 AlgebraicExpression **AlgebraicExpression_FromQueryGraph
 (
@@ -448,6 +480,8 @@ AlgebraicExpression **AlgebraicExpression_FromQueryGraph
 	AlgebraicExpression **exps = array_new(AlgebraicExpression *, 1);
 	uint edge_count = QueryGraph_EdgeCount(qg);
 	if(edge_count == 0) return exps;
+
+  QueryGraph_Print(qg);
 
 	bool acyclic = IsAcyclicGraph(qg);
 	QueryGraph *g = QueryGraph_Clone(qg);
@@ -475,6 +509,7 @@ AlgebraicExpression **AlgebraicExpression_FromQueryGraph
 
 		// Split path into sub paths.
 		bool transpositions[path_len];
+    // make all edges of the path to be in the direction from source to end, and mark transpositions
 		_normalizePath(path, path_len, transpositions);
 
 		QGEdge ***paths = _Intermediate_Paths(path, qg);

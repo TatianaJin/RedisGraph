@@ -16,7 +16,7 @@ typedef void(*Command_Handler)(void *args);
 
 // Read configuration flags, returning REDIS_MODULE_ERR if flag parsing failed.
 static int _read_flags(RedisModuleString **argv, int argc, bool *compact,
-		long long *timeout, uint *graph_version, char **errmsg) {
+		long long *timeout, uint *graph_version, int64_t* batch_size, char **errmsg) {
 
 	ASSERT(compact);
 	ASSERT(timeout);
@@ -25,6 +25,7 @@ static int _read_flags(RedisModuleString **argv, int argc, bool *compact,
 	*timeout = 0;      // no timeout
 	*compact = false;  // verbose
 	*graph_version = GRAPH_VERSION_MISSING;
+  *batch_size = 16;
 
 	// GRAPH.QUERY <GRAPH_KEY> <QUERY>
 	// make sure we've got more than 3 arguments
@@ -72,6 +73,21 @@ static int _read_flags(RedisModuleString **argv, int argc, bool *compact,
 				return REDISMODULE_ERR;
 			}
 		}
+
+    if (!strcasecmp(arg, "batch")) {
+			long long v = 16;
+      int err = REDISMODULE_ERR;
+      if (i < argc - 1) {
+        ++i;
+        err = RedisModule_StringToLongLong(argv[i], &v);
+        *batch_size = v;
+        printf("set batch_size=%ld\n", *batch_size);
+      }
+      if (err != REDISMODULE_OK || *batch_size < 0) {
+        asprintf(errmsg, "Failed to parse batch size value");
+        return err;
+      }
+    }
 	}
 	return REDISMODULE_OK;
 }
@@ -98,8 +114,9 @@ static inline bool _validate_command_arity(GRAPH_Commands cmd, int arity) {
 	case CMD_EXPLAIN:
 	case CMD_PROFILE:
 		// Expect a command, graph name, a query, and optional config flags.
-		return arity >= 3 && arity <= 8;
+		return arity >= 3 && arity <= 10;
 	case CMD_SLOWLOG:
+  case CMD_INFO:
 		// Expect just a command and graph name.
 		return arity == 2;
 	default:
@@ -120,6 +137,8 @@ static Command_Handler get_command_handler(GRAPH_Commands cmd) {
 		return Graph_Profile;
 	case CMD_SLOWLOG:
 		return Graph_Slowlog;
+  case CMD_INFO:
+    return Graph_Info;
 	default:
 		ASSERT(false);
 	}
@@ -133,6 +152,7 @@ static GRAPH_Commands determine_command(const char *cmd_name) {
 	if(strcasecmp(cmd_name, "graph.EXPLAIN") == 0) return CMD_EXPLAIN;
 	if(strcasecmp(cmd_name, "graph.PROFILE") == 0) return CMD_PROFILE;
 	if(strcasecmp(cmd_name, "graph.SLOWLOG") == 0) return CMD_SLOWLOG;
+	if(strcasecmp(cmd_name, "graph.INFO") == 0) return CMD_INFO;
 
 	ASSERT(false);
 	return CMD_UNKNOWN;
@@ -143,6 +163,7 @@ int CommandDispatch(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 	bool compact;
 	uint version;
 	long long timeout;
+  int64_t batch_size;
 	CommandCtx *context = NULL;
 
 	RedisModuleString *graph_name = argv[1];
@@ -151,7 +172,7 @@ int CommandDispatch(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 	GRAPH_Commands cmd = determine_command(command_name);
 
 	// Parse additional query arguments.
-	int res = _read_flags(argv, argc, &compact, &timeout, &version, &errmsg);
+	int res = _read_flags(argv, argc, &compact, &timeout, &version, &batch_size, &errmsg);
 
 	if(res == REDISMODULE_ERR) {
 		// Emit error and exit if argument parsing failed.
@@ -185,12 +206,12 @@ int CommandDispatch(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 											REDISMODULE_CTX_FLAGS_LOADING));
 	if(execute_on_main_thread) {
 		// Run query on Redis main thread.
-		context = CommandCtx_New(ctx, NULL, argv[0], query, gc, is_replicated, compact, timeout);
+		context = CommandCtx_New(ctx, NULL, argv[0], query, gc, is_replicated, compact, timeout, batch_size);
 		handler(context);
 	} else {
 		// Run query on a dedicated thread.
 		RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-		context = CommandCtx_New(NULL, bc, argv[0], query, gc, is_replicated, compact, timeout);
+		context = CommandCtx_New(NULL, bc, argv[0], query, gc, is_replicated, compact, timeout, batch_size);
 		thpool_add_work(_thpool, handler, context);
 	}
 
