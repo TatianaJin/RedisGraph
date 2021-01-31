@@ -10,6 +10,7 @@
 #include "RG.h"
 #include "shared/print_functions.h"
 #include "../../query_ctx.h"
+#include "../../util/simple_timer.h"
 
 // default number of records to accumulate before traversing
 #define BATCH_SIZE QueryCtx_GetBatchSize()
@@ -18,6 +19,7 @@
 /* Forward declarations. */
 static OpResult CondTraverseInit(OpBase *opBase);
 static Record CondTraverseConsume(OpBase *opBase);
+static Record CondTraverseConsumeProfile(OpBase *opBase);
 static OpResult CondTraverseReset(OpBase *opBase);
 static OpBase *CondTraverseClone(const ExecutionPlan *plan, const OpBase *opBase);
 static void CondTraverseFree(OpBase *opBase);
@@ -71,6 +73,41 @@ void _traverse(OpCondTraverse *op) {
 	GrB_Matrix_clear(op->F);
 }
 
+void _traverse_profile(OpCondTraverse *op) {
+	// If op->F is null, this is the first time we are traversing.
+	if(op->F == GrB_NULL) {
+		// Create both filter and result matrices.
+		size_t required_dim = Graph_RequiredMatrixDim(op->graph);
+		GrB_Matrix_new(&op->M, GrB_BOOL, op->record_cap, required_dim);
+		GrB_Matrix_new(&op->F, GrB_BOOL, op->record_cap, required_dim);
+
+		// Prepend the filter matrix to algebraic expression as the leftmost operand.
+		AlgebraicExpression_MultiplyToTheLeft(&op->ae, op->F);
+
+		// Optimize the expression tree.
+		AlgebraicExpression_Optimize(&op->ae);
+	}
+
+	// Populate filter matrix.
+  double tic[2];
+  simple_tic(tic);
+	_populate_filter_matrix(op);
+  op->op.stats->sortTime += simple_toc(tic);
+
+	// Evaluate expression.
+  simple_tic(tic);
+  AlgebraicExpression_Eval(op->ae, op->M);
+  if(op->iter == NULL) GxB_MatrixTupleIter_new(&op->iter, op->M);
+  else GxB_MatrixTupleIter_reuse(op->iter, op->M);
+  // force no pending
+  GrB_Index nvals;
+  GrB_Info res = GrB_Matrix_nvals(&nvals, op->M);
+  op->op.stats->aeEvalTime += simple_toc(tic);
+
+	// Clear filter matrix.
+	GrB_Matrix_clear(op->F);
+}
+
 OpBase *NewCondTraverseOp(const ExecutionPlan *plan, Graph *g, AlgebraicExpression *ae) {
 	OpCondTraverse *op = rm_malloc(sizeof(OpCondTraverse));
 	op->graph = g;
@@ -90,6 +127,7 @@ OpBase *NewCondTraverseOp(const ExecutionPlan *plan, Graph *g, AlgebraicExpressi
 	OpBase_Init((OpBase *)op, OPType_CONDITIONAL_TRAVERSE, "Conditional Traverse", CondTraverseInit,
 				CondTraverseConsume, CondTraverseReset, CondTraverseToString, CondTraverseClone, CondTraverseFree,
 				false, plan);
+  ((OpBase *)op)->profile = CondTraverseConsumeProfile;
 
 	bool aware = OpBase_Aware((OpBase *)op, AlgebraicExpression_Source(ae), &op->srcNodeIdx);
 	UNUSED(aware);
@@ -135,6 +173,97 @@ static OpResult CondTraverseInit(OpBase *opBase) {
 
 	return OP_OK;
 }
+
+static Record CondTraverseConsumeProfile(OpBase *opBase) {
+  // FIXME
+	OpCondTraverse *op = (OpCondTraverse *)opBase;
+	OpBase *child = op->op.children[0];
+
+	/* If we're required to update an edge and have one queued, we can return early.
+	 * Otherwise, try to get a new pair of source and destination nodes. */
+	if(op->edge_ctx && Traverse_SetEdge(op->edge_ctx, op->r)) return OpBase_CloneRecordTimed(op->r, op->op.stats);
+
+	bool depleted = true;
+	NodeID src_id = INVALID_ENTITY_ID;
+	NodeID dest_id = INVALID_ENTITY_ID;
+
+	while(true) {
+		if(op->iter) GxB_MatrixTupleIter_next(op->iter, &src_id, &dest_id, &depleted);
+
+		// Managed to get a tuple, break.
+		if(!depleted) break;
+
+		/* Run out of tuples, try to get new data.
+		 * Free old records. */
+		op->r = NULL;
+		for(uint i = 0; i < op->record_count; i++) OpBase_DeleteRecord(op->records[i]);
+
+		// Ask child operations for data.
+		for(op->record_count = 0; op->record_count < op->record_cap; op->record_count++) {
+			Record childRecord = OpBase_Consume(child);
+			// If the Record is NULL, the child has been depleted.
+			if(!childRecord) break;
+			if(!Record_GetNode(childRecord, op->srcNodeIdx)) {
+				/* The child Record may not contain the source node in scenarios like
+				 * a failed OPTIONAL MATCH. In this case, delete the Record and try again. */
+				OpBase_DeleteRecord(childRecord);
+				op->record_count--;
+				continue;
+			}
+
+			// Store received record.
+			Record_PersistScalars(childRecord);
+			op->records[op->record_count] = childRecord;
+
+		}
+
+		// No data.
+		if(op->record_count == 0) {
+      return NULL;
+    }
+
+    /* redisgraphG
+     * verification experiments: count redundancy in source nodes
+     * output format: (in binary, uint64_t)
+     * <num_records><batch_i_record_1_source_id><batch_i_record_2_source_id>...
+     * <num_records><batch_i+1_record_1_source_id><batch_i+1_record_2_source_id>...
+     */
+    double tic[2];
+    simple_tic(tic);
+    uint64_t size =op->record_count; // write 0 if reset, here is the number of records
+    fwrite(&size, sizeof(uint64_t), 1, op->stats_file);
+    for (uint i = 0; i < op->record_count; ++i) {
+      Record r = op->records[i];
+      Node *n = Record_GetNode(r, op->srcNodeIdx);
+      NodeID srcId = ENTITY_GET_ID(n);
+      fwrite(&srcId, sizeof(NodeID), 1, op->stats_file);
+    }
+    op->op.stats->statsTime += simple_toc(tic);
+    /* redisgraphG */
+
+		_traverse_profile(op);
+	}
+
+	/* Get node from current column. */
+	op->r = op->records[src_id];
+	/* Populate the destination node and add it to the Record.
+	 * Note that if the node's label is unknown, this will correctly
+	 * create an unlabeled node. */
+	Node destNode = GE_NEW_LABELED_NODE(op->dest_label, op->dest_label_id);
+	Graph_GetNode(op->graph, dest_id, &destNode);
+	Record_AddNode(op->r, op->destNodeIdx, destNode);
+
+	if(op->edge_ctx) {
+		Node *srcNode = Record_GetNode(op->r, op->srcNodeIdx);
+		// Collect all appropriate edges connecting the current pair of endpoints.
+		Traverse_CollectEdges(op->edge_ctx, ENTITY_GET_ID(srcNode), ENTITY_GET_ID(&destNode));
+		// We're guaranteed to have at least one edge.
+		Traverse_SetEdge(op->edge_ctx, op->r);
+	}
+
+	return OpBase_CloneRecordTimed(op->r, op->op.stats);
+}
+
 
 /* Each call to CondTraverseConsume emits a Record containing the
  * traversal's endpoints and, if required, an edge.

@@ -40,6 +40,7 @@ CommandCtx *CommandCtx_New
 	context->command_name = NULL;
 	context->graph_ctx = graph_ctx;
 	context->replicated_command = replicated_command;
+  context->traverse_mode = 0;
 
 	size_t len;
 	if(cmd_name) {

@@ -443,11 +443,19 @@ int ExecutionPlan_DecRefCount(ExecutionPlan *plan) {
 //------------------------------------------------------------------------------
 
 static void _ExecutionPlan_InitProfiling(OpBase *root) {
-	root->profile = root->consume;
+  if (root->type == OPType_CONDITIONAL_TRAVERSE_BD || root->type == OPType_CONDITIONAL_TRAVERSE) {
+    assert(root->profile);
+  } else {
+    root->profile = root->consume;
+  }
 	root->consume = OpBase_Profile;
 	root->stats = rm_malloc(sizeof(OpStats));
 	root->stats->profileExecTime = 0;
 	root->stats->profileRecordCount = 0;
+  root->stats->sortTime = 0;
+  root->stats->aeEvalTime = 0;
+  root->stats->cloneTime = 0;
+  root->stats->statsTime = 0;
 
 	if(root->childCount) {
 		for(int i = 0; i < root->childCount; i++) {
@@ -466,6 +474,10 @@ static void _ExecutionPlan_FinalizeProfiling(OpBase *root) {
 		}
 	}
 	root->stats->profileExecTime *= 1000;   // Milliseconds.
+  root->stats->sortTime *= 1000;
+  root->stats->aeEvalTime *= 1000;
+  root->stats->cloneTime *= 1000;
+  root->stats->statsTime *= 1000;
 }
 
 ResultSet *ExecutionPlan_Profile(ExecutionPlan *plan) {

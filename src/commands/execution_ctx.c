@@ -63,7 +63,7 @@ static AST *_ExecutionCtx_ParseAST(const char *query_string,
 ExecutionCtx *ExecutionCtx_FromQuery(const char *query) {
 	ASSERT(query != NULL);
 
-	ExecutionCtx *ret;
+	ExecutionCtx *ret = NULL;
 	const char *query_string;
 
 	// Have an invalid ctx for errors.
@@ -81,7 +81,9 @@ ExecutionCtx *ExecutionCtx_FromQuery(const char *query) {
 	Cache *cache = GraphContext_GetCache(gc);
 
 	// Check the cache to see if we already have a cached context for this query.
-	ret = Cache_GetValue(cache, query_string);
+  // redisgraphG
+  // uncomment the following line to enable cache
+	// ret = Cache_GetValue(cache, query_string);
 	if(ret) {
 		ExecutionCtx_Free(invalid_ctx);
 		// Set parameters parse result in the execution ast.

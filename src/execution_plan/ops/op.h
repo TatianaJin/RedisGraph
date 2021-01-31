@@ -95,6 +95,10 @@ typedef struct OpBase *(*fpClone)(const struct ExecutionPlan *, const struct OpB
 typedef struct {
 	int profileRecordCount;     // Number of records generated.
 	double profileExecTime;     // Operation total execution time in ms.
+  double sortTime;
+  double aeEvalTime;
+  double cloneTime;
+  double statsTime;
 }  OpStats;
 
 struct OpBase {
@@ -156,6 +160,7 @@ Record OpBase_CreateRecord(const OpBase *op);
 
 // Clones given record.
 Record OpBase_CloneRecord(Record r);
+Record OpBase_CloneRecordTimed(Record r, OpStats *stats);
 
 // Release record.
 void OpBase_DeleteRecord(Record r);

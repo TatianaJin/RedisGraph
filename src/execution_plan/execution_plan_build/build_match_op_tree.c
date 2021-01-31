@@ -7,11 +7,27 @@
 #include "../../util/rax_extensions.h"
 #include "../../ast/ast_build_filter_tree.h"
 
+typedef OpBase*(*fpNewCondTraverseOp)(const ExecutionPlan *plan, Graph *g, AlgebraicExpression *ae);
+
 static void _ExecutionPlan_ProcessQueryGraph(ExecutionPlan *plan, QueryGraph *qg,
 											 AST *ast) {
 	GraphContext *gc = QueryCtx_GetGraphCtx();
 
   /* ========== redisgraphG ========== */
+  int traverse_mode = QueryCtx_GetTraverseMode();
+  fpNewCondTraverseOp NewCondTraverseOpByMode;
+  printf("===== traverse mode %d =====\n", traverse_mode);
+  switch (traverse_mode) {
+    case 0:
+      NewCondTraverseOpByMode = NewCondTraverseOp;
+      break;
+    case 1:
+      NewCondTraverseOpByMode = NewCondTraverseOpBD;
+      break;
+    default:
+      printf("unsupported traverse mode %d\n", traverse_mode);
+      assert(false);
+  }
   // TODO(tatiana): move to where stats are available for better cost estimation based on filter selectivity
 	// Build the full FilterTree for this AST so that we can order traversals properly.
 	FT_FilterNode *ft = AST_BuildFilterTree(ast);
@@ -91,7 +107,11 @@ static void _ExecutionPlan_ProcessQueryGraph(ExecutionPlan *plan, QueryGraph *qg
 				if(edge && QGEdge_VariableLength(edge)) {
 					root = NewCondVarLenTraverseOp(plan, gc->g, exp);
 				} else {
-					root = NewCondTraverseOp(plan, gc->g, exp);
+          if (tail->childCount == 0) { // the child is a scan op, no need to deduplicate src when traversal
+            root = NewCondTraverseOp(plan, gc->g, exp);
+          } else {
+            root = NewCondTraverseOpByMode(plan, gc->g, exp);
+          }
 				}
 				// Insert the new traversal op at the root of the chain.
 				ExecutionPlan_AddOp(root, tail);

@@ -9,6 +9,7 @@
 #include "../ops/op_filter.h"
 #include "../ops/op_node_by_label_scan.h"
 #include "../ops/op_conditional_traverse.h"
+#include "../ops/op_conditional_traverse_batch_deduplication.h"
 #include "../../util/arr.h"
 #include "../../query_ctx.h"
 #include "../execution_plan_build/execution_plan_modify.h"

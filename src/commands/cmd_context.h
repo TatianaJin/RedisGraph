@@ -21,6 +21,7 @@ typedef struct {
 	bool compact;                   // Whether this query was issued with the compact flag.
 	long long timeout;              // The query timeout, if specified.
   int64_t batch_size;
+  int traverse_mode;
 } CommandCtx;
 
 // Create a new command context.

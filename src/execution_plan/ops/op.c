@@ -97,9 +97,13 @@ void OpBase_PropagateReset(OpBase *op) {
 
 static int _OpBase_StatsToString(const OpBase *op, char *buff, uint buff_len) {
 	return snprintf(buff, buff_len,
-					" | Records produced: %d, Execution time: %f ms",
+					" | Records produced: %d, Execution time: %f ms, sort %f ms, ae %f ms, clone %f ms, stats %f ms",
 					op->stats->profileRecordCount,
-					op->stats->profileExecTime);
+					op->stats->profileExecTime,
+          op->stats->sortTime,
+          op->stats->aeEvalTime,
+          op->stats->cloneTime,
+          op->stats->statsTime);
 }
 
 int OpBase_ToString(const OpBase *op, char *buff, uint buff_len) {
@@ -148,6 +152,14 @@ Record OpBase_CloneRecord(Record r) {
 	Record clone = ExecutionPlan_BorrowRecord((struct ExecutionPlan *)r->owner);
 	Record_Clone(r, clone);
 	return clone;
+}
+
+inline Record OpBase_CloneRecordTimed(Record r, OpStats *stats) {
+  double tic[2];
+  simple_tic(tic);
+  Record ret = OpBase_CloneRecord(r);
+  stats->cloneTime += simple_toc(tic);
+  return ret;
 }
 
 inline void OpBase_DeleteRecord(Record r) {

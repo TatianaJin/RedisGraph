@@ -43,6 +43,7 @@ typedef struct {
 	QueryCtx_GlobalExecCtx global_exec_ctx;     // The data rlated to global redis execution.
 	GraphContext *gc;                           // The GraphContext associated with this query's graph.
   int64_t batch_size;
+  int traverse_mode;
 } QueryCtx;
 
 /* Instantiate the thread-local QueryCtx on module load. */
@@ -81,6 +82,8 @@ ResultSet *QueryCtx_GetResultSet(void);
 ResultSetStatistics *QueryCtx_GetResultSetStatistics(void);
 /* Retrieve the batch size for traversal */
 int64_t QueryCtx_GetBatchSize(void);
+/* Retrieve the mode for traversal */
+int QueryCtx_GetTraverseMode(void);
 
 /* Print the current query. */
 void QueryCtx_PrintQuery(void);
